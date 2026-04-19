@@ -7,7 +7,8 @@ try {
 const http = require("http");
 const express = require("express");
 const { WebSocketServer } = require("ws");
-const { handleConversationRelayWS } = require("./lib/conversation-relay");
+const { handleConversationRelayWS } = require("./conversation-relay");
+const { startLeadScheduler } = require("./scheduler");
 
 const app = express();
 const server = http.createServer(app);
@@ -23,6 +24,8 @@ app.get("/health", (_req, res) =>
 app.get("/", (_req, res) =>
   res.json({ service: "Agently ConversationRelay WS Server" }),
 );
+
+const stopScheduler = startLeadScheduler();
 
 const wss = new WebSocketServer({ noServer: true });
 server.on("upgrade", (request, socket, head) => {
@@ -41,3 +44,14 @@ server.listen(PORT, () => {
   console.log(`📡 Health: http://localhost:${PORT}/health`);
   console.log(`🎙️  ConversationRelay: wss://YOUR-DOMAIN/ws\n`);
 });
+
+
+function shutdown() {
+  try {
+    stopScheduler();
+  } catch (_) {}
+  process.exit(0);
+}
+
+process.on("SIGINT", shutdown);
+process.on("SIGTERM", shutdown);
