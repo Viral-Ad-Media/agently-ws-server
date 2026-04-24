@@ -1,81 +1,99 @@
-'use strict';
+"use strict";
 
 /**
- * ws-server.js  –  Standalone ConversationRelay WebSocket Server
+ * ws-server.js  –  Agently WebSocket Server (Railway)
  *
- * Deploy this on Railway, Render, or Fly.io (NOT Vercel).
- * Vercel serverless cannot hold persistent WebSocket connections.
+ * Handles two WebSocket paths:
+ *   /ws        → Twilio ConversationRelay (voice calls)
+ *   /realtime  → OpenAI Realtime API proxy (chat widget voice mode)
  *
- * This tiny server does ONE job: handle Twilio ConversationRelay
- * WebSocket sessions, stream OpenAI responses, and save call records.
- *
- * All REST API routes (phone number search, billing, etc.)
- * remain on Vercel as serverless functions.
- *
- * SETUP:
- *   1. Copy this file + the /lib folder to a new Railway project
- *   2. Set env vars: SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY,
- *                    OPENAI_API_KEY, API_URL (this server's public URL)
- *   3. Deploy: railway up
- *   4. Point TWILIO_WS_URL env var on Vercel backend to this server's wss:// URL
- *
- * HOW IT FITS:
- *   Twilio inbound call → Vercel /api/twilio/voice-inbound (returns TwiML)
- *     └─ TwiML contains: <ConversationRelay url="wss://THIS-SERVER/ws?..." />
- *   Twilio opens WS → THIS SERVER handles the live session
- *   Call ends → THIS SERVER saves record to Supabase
- *
- * COST ESTIMATE (Railway Hobby):
- *   ~$5-7/mo for always-on Node process. Scales to ~100 concurrent calls.
+ * The /realtime path replaces the old 3-step pipeline:
+ *   OLD: Whisper (~800ms) + GPT (~1.5s) + TTS (~600ms) = ~3-5s per turn
+ *   NEW: OpenAI Realtime API proxy = <500ms first audio, sub-second turns
  */
 
-try { require('dotenv').config(); } catch (_) {}
+try {
+  require("dotenv").config();
+} catch (_) {}
 
-const http    = require('http');
-const express = require('express');
-const { WebSocketServer } = require('ws');
-const { handleConversationRelayWS } = require('./lib/conversation-relay');
+const http = require("http");
+const express = require("express");
+const { WebSocketServer } = require("ws");
+const { handleConversationRelayWS } = require("./lib/conversation-relay");
+const { handleRealtimeProxy } = require("./lib/realtime-proxy");
+const { scheduleLeadOutreach } = require("./lib/scheduler");
 
-const app    = express();
+const app = express();
 const server = http.createServer(app);
-const PORT   = process.env.PORT || 8080;
+const PORT = process.env.PORT || 8080;
 
-// ── Health endpoint (Railway/Render uses this) ────────────────
-app.get('/health', (_req, res) => res.json({
-  status: 'ok',
-  service: 'agently-ws',
-  ts: new Date().toISOString(),
-}));
+// ── Health endpoint ───────────────────────────────────────────
+app.get("/health", (_req, res) =>
+  res.json({
+    status: "ok",
+    service: "agently-ws",
+    ts: new Date().toISOString(),
+    paths: {
+      conversationRelay: "/ws",
+      realtimeProxy: "/realtime",
+    },
+  }),
+);
 
-app.get('/', (_req, res) => res.json({ service: 'Agently ConversationRelay WS Server' }));
+app.get("/", (_req, res) =>
+  res.json({ service: "Agently WS Server — /ws + /realtime" }),
+);
 
-// ── WebSocket server ──────────────────────────────────────────
+// ── WebSocket server (handles both paths) ────────────────────
 const wss = new WebSocketServer({ noServer: true });
 
-server.on('upgrade', (request, socket, head) => {
-  const url = request.url || '';
-  if (url.startsWith('/ws') || url.startsWith('/api/twilio/ws')) {
+server.on("upgrade", (request, socket, head) => {
+  const url = (request.url || "").split("?")[0];
+
+  if (url === "/ws" || url === "/api/twilio/ws") {
+    // Twilio ConversationRelay voice calls
     wss.handleUpgrade(request, socket, head, (ws) => {
       handleConversationRelayWS(ws, request);
+    });
+  } else if (url === "/realtime") {
+    // Chat widget real-time voice mode (OpenAI Realtime API proxy)
+    wss.handleUpgrade(request, socket, head, (ws) => {
+      handleRealtimeProxy(ws, request);
     });
   } else {
     socket.destroy();
   }
 });
 
-wss.on('connection', (_ws) => {
+wss.on("connection", () => {
   console.log(`[WS] Active sessions: ${wss.clients.size}`);
 });
 
+// ── Start lead scheduler (if enabled) ────────────────────────
+if (process.env.ENABLE_LEAD_SCHEDULER === "true") {
+  try {
+    const intervalMs = parseInt(
+      process.env.LEAD_SCHEDULER_INTERVAL_MS || "60000",
+      10,
+    );
+    setInterval(() => {
+      void scheduleLeadOutreach();
+    }, intervalMs);
+    console.log(`[WS] Lead scheduler started (every ${intervalMs / 1000}s)`);
+  } catch (e) {
+    console.warn("[WS] Lead scheduler failed to start:", e.message);
+  }
+}
+
 // ── Start ─────────────────────────────────────────────────────
 server.listen(PORT, () => {
-  console.log(`\n🔌 Agently WS Server running on port ${PORT}`);
-  console.log(`📡 Health: http://localhost:${PORT}/health`);
-  console.log(`🎙️  ConversationRelay: wss://YOUR-DOMAIN/ws\n`);
+  console.log(`\n🔌 Agently WS Server on port ${PORT}`);
+  console.log(`📡 Health:     http://localhost:${PORT}/health`);
+  console.log(`🎙️  Voice calls: wss://YOUR-DOMAIN/ws`);
+  console.log(`⚡  Widget RT:   wss://YOUR-DOMAIN/realtime\n`);
 });
 
-// Graceful shutdown
-process.on('SIGTERM', () => {
-  console.log('[WS] SIGTERM received, closing server…');
+process.on("SIGTERM", () => {
+  console.log("[WS] Shutting down…");
   server.close(() => process.exit(0));
 });
