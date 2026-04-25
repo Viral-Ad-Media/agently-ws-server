@@ -85,6 +85,18 @@ if (process.env.ENABLE_LEAD_SCHEDULER === "true") {
   }
 }
 
+// ── Start per-number billing tracker ─────────────────────────
+// Runs every 30 seconds here on Railway (always-on process).
+// This replaces the Vercel Cron approach which requires a paid plan.
+// Tracks Twilio call costs per number and writes to voice_agents.twilio_billing_usd.
+// NEVER exposed to users — backend-only internal cost tracking.
+try {
+  require("./lib/billing-tracker").start();
+  console.log("[WS] Billing tracker started (every 30s)");
+} catch (e) {
+  console.warn("[WS] Billing tracker failed to start:", e.message);
+}
+
 // ── Start ─────────────────────────────────────────────────────
 server.listen(PORT, () => {
   console.log(`\n🔌 Agently WS Server on port ${PORT}`);
