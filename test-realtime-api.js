@@ -12,15 +12,18 @@ if (!OPENAI_API_KEY) {
 
 console.log("Testing OpenAI Realtime API connection...\n");
 
-const ws = new WebSocket("wss://api.openai.com/v1/realtime?model=gpt-realtime", {
-  headers: {
-    Authorization: `Bearer ${OPENAI_API_KEY}`,
+const ws = new WebSocket(
+  "wss://api.openai.com/v1/realtime?model=gpt-realtime",
+  {
+    headers: {
+      Authorization: `Bearer ${OPENAI_API_KEY}`,
+    },
   },
-});
+);
 
 ws.on("open", () => {
   console.log("✅ WebSocket connected");
-  
+
   // Test session.update with CORRECT MINIMAL GA API structure
   const sessionConfig = {
     type: "session.update",
@@ -30,7 +33,10 @@ ws.on("open", () => {
       instructions: "You are a helpful assistant.",
       audio: {
         input: {
-          format: "pcm16",
+          format: {
+            type: "audio/pcm",
+            rate: 24000,
+          },
           transcription: {
             model: "whisper-1",
           },
@@ -38,11 +44,14 @@ ws.on("open", () => {
             type: "server_vad",
             threshold: 0.5,
             prefix_padding_ms: 300,
-            silence_duration_ms: 600,
+            silence_duration_ms: 500,
           },
         },
         output: {
-          format: "pcm16",
+          format: {
+            type: "audio/pcm",
+            rate: 24000,
+          },
           voice: "alloy",
         },
       },
@@ -56,7 +65,7 @@ ws.on("open", () => {
 ws.on("message", (data) => {
   const event = JSON.parse(data.toString());
   console.log(`📨 Received: ${event.type}`);
-  
+
   if (event.type === "session.updated") {
     console.log("✅ Session updated successfully!");
     console.log("   Model:", event.session.model);
@@ -64,7 +73,7 @@ ws.on("message", (data) => {
     ws.close();
     process.exit(0);
   }
-  
+
   if (event.type === "error") {
     console.error("❌ Error:", event.error?.message || event.message);
     console.error("   Code:", event.error?.code || "unknown");
