@@ -52,6 +52,20 @@ app.get("/health", (_req, res) =>
   }),
 );
 
+app.get("/api/health", (_req, res) =>
+  res.json({
+    ok: true,
+    status: "ok",
+    service: "agently-ws",
+    ts: new Date().toISOString(),
+    paths: {
+      conversationRelay: "/ws",
+      twilioMediaStream: "/api/twilio/media-stream",
+      realtimeProxy: "/realtime",
+    },
+  }),
+);
+
 app.get("/", (_req, res) =>
   res.json({ service: "Agently WS Server — /ws + /realtime" }),
 );
