@@ -21,7 +21,10 @@ const express = require("express");
 const { WebSocketServer } = require("ws");
 const { handleConversationRelayWS } = require("./lib/conversation-relay");
 const { handleRealtimeProxy } = require("./lib/realtime-proxy");
-const { handleTwilioMediaStreamWS } = require("./lib/twilio-media-stream");
+const {
+  handleTwilioMediaStreamWS,
+  loadTwilioAgentContextForDebug,
+} = require("./lib/twilio-media-stream");
 
 // Scheduler — exports startLeadScheduler / executeDueSchedules
 let executeDueSchedules = null;
@@ -65,6 +68,47 @@ app.get("/api/health", (_req, res) =>
     },
   }),
 );
+
+app.get("/debug/agent-context", async (req, res) => {
+  const expectedToken = (process.env.DEBUG_CONTEXT_TOKEN || "").trim();
+  const providedToken = String(
+    req.query.token ||
+      req.get("x-debug-context-token") ||
+      req.get("authorization")?.replace(/^Bearer\s+/i, "") ||
+      "",
+  ).trim();
+
+  if (!expectedToken) {
+    return res
+      .status(404)
+      .json({ ok: false, error: "Debug context endpoint is disabled." });
+  }
+  if (providedToken !== expectedToken) {
+    return res.status(401).json({ ok: false, error: "Unauthorized." });
+  }
+
+  const orgId = String(
+    req.query.orgId || req.query.organizationId || "",
+  ).trim();
+  const agentId = String(
+    req.query.agentId || req.query.voiceAgentId || "",
+  ).trim();
+  if (!orgId || !agentId) {
+    return res
+      .status(400)
+      .json({ ok: false, error: "orgId and agentId are required." });
+  }
+
+  try {
+    const context = await loadTwilioAgentContextForDebug({ orgId, agentId });
+    return res.json({ ok: true, ...context });
+  } catch (err) {
+    console.error("[debug/agent-context] failed:", err.message);
+    return res
+      .status(500)
+      .json({ ok: false, error: "Failed to load agent context." });
+  }
+});
 
 app.get("/", (_req, res) =>
   res.json({ service: "Agently WS Server — /ws + /realtime" }),
