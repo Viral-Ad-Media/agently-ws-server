@@ -21,6 +21,7 @@ const express = require("express");
 const { WebSocketServer } = require("ws");
 const { handleConversationRelayWS } = require("./lib/conversation-relay");
 const { handleRealtimeProxy } = require("./lib/realtime-proxy");
+const { handleTwilioMediaStreamWS } = require("./lib/twilio-media-stream");
 
 // Scheduler — exports startLeadScheduler / executeDueSchedules
 let executeDueSchedules = null;
@@ -39,11 +40,13 @@ const PORT = process.env.PORT || 8080;
 // ── Health endpoint ───────────────────────────────────────────
 app.get("/health", (_req, res) =>
   res.json({
+    ok: true,
     status: "ok",
     service: "agently-ws",
     ts: new Date().toISOString(),
     paths: {
       conversationRelay: "/ws",
+      twilioMediaStream: "/api/twilio/media-stream",
       realtimeProxy: "/realtime",
     },
   }),
@@ -64,12 +67,23 @@ server.on("upgrade", (request, socket, head) => {
     wss.handleUpgrade(request, socket, head, (ws) => {
       handleConversationRelayWS(ws, request);
     });
+  } else if (
+    url === "/api/twilio/media-stream" ||
+    url === "/media-stream" ||
+    url === "/twilio/media-stream"
+  ) {
+    // Twilio <Connect><Stream> media stream calls.
+    // Do not require browser JWT/auth here: Twilio connects directly.
+    wss.handleUpgrade(request, socket, head, (ws) => {
+      handleTwilioMediaStreamWS(ws, request);
+    });
   } else if (url === "/realtime") {
     // Chat widget real-time voice mode (OpenAI Realtime API proxy)
     wss.handleUpgrade(request, socket, head, (ws) => {
       handleRealtimeProxy(ws, request);
     });
   } else {
+    console.warn(`[WS] Rejected websocket upgrade path: ${url || "<empty>"}`);
     socket.destroy();
   }
 });
@@ -119,6 +133,7 @@ server.listen(PORT, () => {
   console.log(`\n🔌 Agently WS Server on port ${PORT}`);
   console.log(`📡 Health:     http://localhost:${PORT}/health`);
   console.log(`🎙️  Voice calls: wss://YOUR-DOMAIN/ws`);
+  console.log(`📞  Twilio Stream: wss://YOUR-DOMAIN/api/twilio/media-stream`);
   console.log(`⚡  Widget RT:   wss://YOUR-DOMAIN/realtime\n`);
 });
 
