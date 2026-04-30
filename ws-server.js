@@ -24,6 +24,7 @@ const { handleRealtimeProxy } = require("./lib/realtime-proxy");
 const {
   handleTwilioMediaStreamWS,
   loadTwilioAgentContextForDebug,
+  loadCallMessageDebug,
 } = require("./lib/twilio-media-stream");
 
 // Scheduler — exports startLeadScheduler / executeDueSchedules
@@ -69,7 +70,7 @@ app.get("/api/health", (_req, res) =>
   }),
 );
 
-app.get("/debug/agent-context", async (req, res) => {
+function requireDebugToken(req, res) {
   const expectedToken = (process.env.DEBUG_CONTEXT_TOKEN || "").trim();
   const providedToken = String(
     req.query.token ||
@@ -79,13 +80,18 @@ app.get("/debug/agent-context", async (req, res) => {
   ).trim();
 
   if (!expectedToken) {
-    return res
-      .status(404)
-      .json({ ok: false, error: "Debug context endpoint is disabled." });
+    res.status(404).json({ ok: false, error: "Debug endpoint is disabled." });
+    return false;
   }
   if (providedToken !== expectedToken) {
-    return res.status(401).json({ ok: false, error: "Unauthorized." });
+    res.status(401).json({ ok: false, error: "Unauthorized." });
+    return false;
   }
+  return true;
+}
+
+app.get("/debug/agent-context", async (req, res) => {
+  if (!requireDebugToken(req, res)) return;
 
   const orgId = String(
     req.query.orgId || req.query.organizationId || "",
@@ -107,6 +113,23 @@ app.get("/debug/agent-context", async (req, res) => {
     return res
       .status(500)
       .json({ ok: false, error: "Failed to load agent context." });
+  }
+});
+
+app.get("/debug/call-message", async (req, res) => {
+  if (!requireDebugToken(req, res)) return;
+  const callSid = String(req.query.callSid || "").trim();
+  if (!callSid) {
+    return res.status(400).json({ ok: false, error: "callSid is required." });
+  }
+  try {
+    const result = await loadCallMessageDebug(callSid);
+    return res.json(result);
+  } catch (err) {
+    console.error("[debug/call-message] failed:", err.message);
+    return res
+      .status(500)
+      .json({ ok: false, error: "Failed to load call message debug details." });
   }
 });
 
