@@ -25,6 +25,7 @@ const {
   handleTwilioMediaStreamWS,
   loadTwilioAgentContextForDebug,
   loadCallMessageDebug,
+  dedupeCallMessage,
 } = require("./lib/twilio-media-stream");
 
 // Scheduler — exports startLeadScheduler / executeDueSchedules
@@ -130,6 +131,23 @@ app.get("/debug/call-message", async (req, res) => {
     return res
       .status(500)
       .json({ ok: false, error: "Failed to load call message debug details." });
+  }
+});
+
+app.post("/debug/dedupe-call-message", async (req, res) => {
+  if (!requireDebugToken(req, res)) return;
+  const callSid = String(req.query.callSid || "").trim();
+  if (!callSid) {
+    return res.status(400).json({ ok: false, error: "callSid is required." });
+  }
+  try {
+    const result = await dedupeCallMessage(callSid);
+    return res.json(result);
+  } catch (err) {
+    console.error("[debug/dedupe-call-message] failed:", err.message);
+    return res
+      .status(500)
+      .json({ ok: false, error: "Failed to dedupe call message leads." });
   }
 });
 
