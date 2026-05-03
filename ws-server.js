@@ -25,6 +25,7 @@ const {
   handleTwilioMediaStreamWS,
   loadTwilioAgentContextForDebug,
   loadCallMessageDebug,
+  loadCallRecordDebug,
   dedupeCallMessage,
 } = require("./lib/twilio-media-stream");
 
@@ -131,6 +132,23 @@ app.get("/debug/call-message", async (req, res) => {
     return res
       .status(500)
       .json({ ok: false, error: "Failed to load call message debug details." });
+  }
+});
+
+app.get("/debug/call-record", async (req, res) => {
+  if (!requireDebugToken(req, res)) return;
+  const callSid = String(req.query.callSid || "").trim();
+  if (!callSid) {
+    return res.status(400).json({ ok: false, error: "callSid is required." });
+  }
+  try {
+    const result = await loadCallRecordDebug(callSid);
+    return res.json(result);
+  } catch (err) {
+    console.error("[debug/call-record] failed:", err.message);
+    return res
+      .status(500)
+      .json({ ok: false, error: "Failed to load call record debug details." });
   }
 });
 
