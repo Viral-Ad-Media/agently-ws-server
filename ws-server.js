@@ -65,6 +65,19 @@ app.get("/health", (_req, res) =>
         process.env.ELEVENLABS_DEFAULT_MODEL || "eleven_flash_v2_5",
       elevenLabsTwilioOutputFormat:
         process.env.ELEVENLABS_TWILIO_OUTPUT_FORMAT || "ulaw_8000",
+      elevenLabsSpeed: Number(process.env.ELEVENLABS_SPEED || 1.08),
+      elevenLabsOptimizeStreamingLatency: Number(
+        process.env.ELEVENLABS_OPTIMIZE_STREAMING_LATENCY || 3,
+      ),
+      idleHangupMs: Number(
+        process.env.INBOUND_CALL_IDLE_TIMEOUT_MS ||
+          process.env.VOICE_IDLE_HANGUP_MS ||
+          10000,
+      ),
+      callEndConfirmationEnabled:
+        String(
+          process.env.CALL_END_CONFIRMATION_ENABLED || "false",
+        ).toLowerCase() === "true",
     },
   }),
 );
@@ -90,6 +103,19 @@ app.get("/api/health", (_req, res) =>
         process.env.ELEVENLABS_DEFAULT_MODEL || "eleven_flash_v2_5",
       elevenLabsTwilioOutputFormat:
         process.env.ELEVENLABS_TWILIO_OUTPUT_FORMAT || "ulaw_8000",
+      elevenLabsSpeed: Number(process.env.ELEVENLABS_SPEED || 1.08),
+      elevenLabsOptimizeStreamingLatency: Number(
+        process.env.ELEVENLABS_OPTIMIZE_STREAMING_LATENCY || 3,
+      ),
+      idleHangupMs: Number(
+        process.env.INBOUND_CALL_IDLE_TIMEOUT_MS ||
+          process.env.VOICE_IDLE_HANGUP_MS ||
+          10000,
+      ),
+      callEndConfirmationEnabled:
+        String(
+          process.env.CALL_END_CONFIRMATION_ENABLED || "false",
+        ).toLowerCase() === "true",
     },
   }),
 );
