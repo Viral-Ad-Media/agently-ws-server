@@ -55,6 +55,17 @@ app.get("/health", (_req, res) =>
       twilioMediaStream: "/api/twilio/media-stream",
       realtimeProxy: "/realtime",
     },
+    voiceProviders: {
+      default: process.env.VOICE_PROVIDER_DEFAULT || "openai",
+      fallback: process.env.VOICE_PROVIDER_FALLBACK || "openai",
+      elevenLabsConfigured: Boolean(
+        (process.env.ELEVENLABS_API_KEY || "").trim(),
+      ),
+      elevenLabsDefaultModel:
+        process.env.ELEVENLABS_DEFAULT_MODEL || "eleven_flash_v2_5",
+      elevenLabsTwilioOutputFormat:
+        process.env.ELEVENLABS_TWILIO_OUTPUT_FORMAT || "ulaw_8000",
+    },
   }),
 );
 
@@ -68,6 +79,17 @@ app.get("/api/health", (_req, res) =>
       conversationRelay: "/ws",
       twilioMediaStream: "/api/twilio/media-stream",
       realtimeProxy: "/realtime",
+    },
+    voiceProviders: {
+      default: process.env.VOICE_PROVIDER_DEFAULT || "openai",
+      fallback: process.env.VOICE_PROVIDER_FALLBACK || "openai",
+      elevenLabsConfigured: Boolean(
+        (process.env.ELEVENLABS_API_KEY || "").trim(),
+      ),
+      elevenLabsDefaultModel:
+        process.env.ELEVENLABS_DEFAULT_MODEL || "eleven_flash_v2_5",
+      elevenLabsTwilioOutputFormat:
+        process.env.ELEVENLABS_TWILIO_OUTPUT_FORMAT || "ulaw_8000",
     },
   }),
 );
