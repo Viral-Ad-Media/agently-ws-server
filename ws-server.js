@@ -65,14 +65,13 @@ app.get("/health", (_req, res) =>
         process.env.ELEVENLABS_DEFAULT_MODEL || "eleven_flash_v2_5",
       elevenLabsTwilioOutputFormat:
         process.env.ELEVENLABS_TWILIO_OUTPUT_FORMAT || "ulaw_8000",
-      elevenLabsSpeed: Number(process.env.ELEVENLABS_SPEED || 1.08),
+      elevenLabsSpeed: Number(process.env.ELEVENLABS_SPEED || 0.92),
       elevenLabsOptimizeStreamingLatency: Number(
         process.env.ELEVENLABS_OPTIMIZE_STREAMING_LATENCY || 3,
       ),
-      idleHangupMs: Number(
-        process.env.INBOUND_CALL_IDLE_TIMEOUT_MS ||
-          process.env.VOICE_IDLE_HANGUP_MS ||
-          10000,
+      idleHangupMs: Number(process.env.NO_SPEECH_TIMEOUT_SECONDS || 15) * 1000,
+      noSpeechTimeoutSeconds: Number(
+        process.env.NO_SPEECH_TIMEOUT_SECONDS || 15,
       ),
       callEndConfirmationEnabled:
         String(
@@ -103,14 +102,13 @@ app.get("/api/health", (_req, res) =>
         process.env.ELEVENLABS_DEFAULT_MODEL || "eleven_flash_v2_5",
       elevenLabsTwilioOutputFormat:
         process.env.ELEVENLABS_TWILIO_OUTPUT_FORMAT || "ulaw_8000",
-      elevenLabsSpeed: Number(process.env.ELEVENLABS_SPEED || 1.08),
+      elevenLabsSpeed: Number(process.env.ELEVENLABS_SPEED || 0.92),
       elevenLabsOptimizeStreamingLatency: Number(
         process.env.ELEVENLABS_OPTIMIZE_STREAMING_LATENCY || 3,
       ),
-      idleHangupMs: Number(
-        process.env.INBOUND_CALL_IDLE_TIMEOUT_MS ||
-          process.env.VOICE_IDLE_HANGUP_MS ||
-          10000,
+      idleHangupMs: Number(process.env.NO_SPEECH_TIMEOUT_SECONDS || 15) * 1000,
+      noSpeechTimeoutSeconds: Number(
+        process.env.NO_SPEECH_TIMEOUT_SECONDS || 15,
       ),
       callEndConfirmationEnabled:
         String(
