@@ -29,12 +29,13 @@ const {
   dedupeCallMessage,
 } = require("./lib/twilio-media-stream");
 
-// Scheduler — exports startLeadScheduler / executeDueSchedules
+// Scheduler — production scheduled outbound worker runs on Railway.
+let startLeadScheduler = null;
 let executeDueSchedules = null;
 try {
   const scheduler = require("./lib/scheduler");
-  executeDueSchedules =
-    scheduler.executeDueSchedules || scheduler.startLeadScheduler || null;
+  startLeadScheduler = scheduler.startLeadScheduler || null;
+  executeDueSchedules = scheduler.executeDueSchedules || null;
 } catch (e) {
   console.warn("[WS] Scheduler not available:", e.message);
 }
@@ -77,6 +78,22 @@ app.get("/health", (_req, res) =>
         String(
           process.env.CALL_END_CONFIRMATION_ENABLED || "false",
         ).toLowerCase() === "true",
+      schedulerEnabled:
+        String(
+          process.env.SCHEDULER_ENABLED ||
+            process.env.ENABLE_LEAD_SCHEDULER ||
+            "true",
+        ).toLowerCase() !== "false",
+      schedulerPollIntervalSeconds: Number(
+        process.env.SCHEDULER_POLL_INTERVAL_SECONDS || 60,
+      ),
+      maxGlobalOutboundCallsPerMinute: Number(
+        process.env.MAX_GLOBAL_OUTBOUND_CALLS_PER_MINUTE || 30,
+      ),
+      maxOrgOutboundCallsPerMinute: Number(
+        process.env.MAX_ORG_OUTBOUND_CALLS_PER_MINUTE || 5,
+      ),
+      maxOrgConcurrentCalls: Number(process.env.MAX_ORG_CONCURRENT_CALLS || 3),
     },
   }),
 );
@@ -114,6 +131,22 @@ app.get("/api/health", (_req, res) =>
         String(
           process.env.CALL_END_CONFIRMATION_ENABLED || "false",
         ).toLowerCase() === "true",
+      schedulerEnabled:
+        String(
+          process.env.SCHEDULER_ENABLED ||
+            process.env.ENABLE_LEAD_SCHEDULER ||
+            "true",
+        ).toLowerCase() !== "false",
+      schedulerPollIntervalSeconds: Number(
+        process.env.SCHEDULER_POLL_INTERVAL_SECONDS || 60,
+      ),
+      maxGlobalOutboundCallsPerMinute: Number(
+        process.env.MAX_GLOBAL_OUTBOUND_CALLS_PER_MINUTE || 30,
+      ),
+      maxOrgOutboundCallsPerMinute: Number(
+        process.env.MAX_ORG_OUTBOUND_CALLS_PER_MINUTE || 5,
+      ),
+      maxOrgConcurrentCalls: Number(process.env.MAX_ORG_CONCURRENT_CALLS || 3),
     },
   }),
 );
@@ -255,20 +288,22 @@ wss.on("connection", () => {
   console.log(`[WS] Active sessions: ${wss.clients.size}`);
 });
 
-// ── Start lead scheduler (if enabled) ────────────────────────
-if (process.env.ENABLE_LEAD_SCHEDULER === "true" && executeDueSchedules) {
-  try {
-    const intervalMs = parseInt(
-      process.env.LEAD_SCHEDULER_INTERVAL_MS || "60000",
-      10,
+// ── Start scheduled outbound worker (if enabled) ──────────────
+try {
+  if (startLeadScheduler) {
+    startLeadScheduler();
+  } else if (executeDueSchedules) {
+    const intervalMs = Math.max(
+      15000,
+      Number(process.env.SCHEDULER_POLL_INTERVAL_SECONDS || 60) * 1000,
     );
-    setInterval(() => {
-      void executeDueSchedules();
-    }, intervalMs);
-    console.log(`[WS] Lead scheduler started (every ${intervalMs / 1000}s)`);
-  } catch (e) {
-    console.warn("[WS] Lead scheduler failed to start:", e.message);
+    setInterval(() => void executeDueSchedules(), intervalMs);
+    console.log(
+      `[WS] Scheduled outbound worker started (every ${intervalMs / 1000}s)`,
+    );
   }
+} catch (e) {
+  console.warn("[WS] Scheduled outbound worker failed to start:", e.message);
 }
 
 // ── Start per-number billing tracker ─────────────────────────
