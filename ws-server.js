@@ -28,16 +28,23 @@ const {
   loadCallRecordDebug,
   dedupeCallMessage,
 } = require("./lib/twilio-media-stream");
+const {
+  safeConfigForDebug,
+  logRuntimeConfigValidation,
+  validateRuntimeConfig,
+} = require("./lib/config");
 
 // Scheduler — production scheduled outbound worker runs on Railway.
 let startLeadScheduler = null;
 let executeDueSchedules = null;
 let debugProviderHealth = null;
+let debugSchedule = null;
 try {
   const scheduler = require("./lib/scheduler");
   startLeadScheduler = scheduler.startLeadScheduler || null;
   executeDueSchedules = scheduler.executeDueSchedules || null;
   debugProviderHealth = scheduler.debugProviderHealth || null;
+  debugSchedule = scheduler.debugSchedule || null;
 } catch (e) {
   console.warn("[WS] Scheduler not available:", e.message);
 }
@@ -45,6 +52,7 @@ try {
 const app = express();
 const server = http.createServer(app);
 const PORT = process.env.PORT || 8080;
+logRuntimeConfigValidation(validateRuntimeConfig());
 
 // ── Health endpoint ───────────────────────────────────────────
 app.get("/health", (_req, res) =>
@@ -58,6 +66,7 @@ app.get("/health", (_req, res) =>
       twilioMediaStream: "/api/twilio/media-stream",
       realtimeProxy: "/realtime",
     },
+    config: safeConfigForDebug(),
     voiceProviders: {
       default: process.env.VOICE_PROVIDER_DEFAULT || "openai",
       fallback: process.env.VOICE_PROVIDER_FALLBACK || "openai",
@@ -119,6 +128,7 @@ app.get("/api/health", (_req, res) =>
       twilioMediaStream: "/api/twilio/media-stream",
       realtimeProxy: "/realtime",
     },
+    config: safeConfigForDebug(),
     voiceProviders: {
       default: process.env.VOICE_PROVIDER_DEFAULT || "openai",
       fallback: process.env.VOICE_PROVIDER_FALLBACK || "openai",
@@ -189,6 +199,22 @@ function requireDebugToken(req, res) {
   return true;
 }
 
+app.get("/debug/config", async (req, res) => {
+  if (!requireDebugToken(req, res)) return;
+  try {
+    return res.json({
+      ok: true,
+      ts: new Date().toISOString(),
+      ...safeConfigForDebug(),
+    });
+  } catch (err) {
+    console.error("[debug/config] failed:", err.message);
+    return res
+      .status(500)
+      .json({ ok: false, error: "Failed to load config debug details." });
+  }
+});
+
 app.get("/debug/provider-health", async (req, res) => {
   if (!requireDebugToken(req, res)) return;
   try {
@@ -204,6 +230,24 @@ app.get("/debug/provider-health", async (req, res) => {
     return res
       .status(500)
       .json({ ok: false, error: "Failed to load provider health." });
+  }
+});
+
+app.get("/debug/schedule/:id", async (req, res) => {
+  if (!requireDebugToken(req, res)) return;
+  try {
+    if (!debugSchedule) {
+      return res
+        .status(503)
+        .json({ ok: false, error: "Schedule debug is unavailable." });
+    }
+    const result = await debugSchedule(String(req.params.id || ""));
+    return res.json({ ts: new Date().toISOString(), ...result });
+  } catch (err) {
+    console.error("[debug/schedule] failed:", err.message);
+    return res
+      .status(500)
+      .json({ ok: false, error: "Failed to load schedule debug details." });
   }
 });
 
@@ -366,9 +410,13 @@ try {
 server.listen(PORT, () => {
   console.log(`\n🔌 Agently WS Server on port ${PORT}`);
   console.log(`📡 Health:     http://localhost:${PORT}/health`);
-  console.log(`🎙️  Voice calls: wss://YOUR-DOMAIN/ws`);
-  console.log(`📞  Twilio Stream: wss://YOUR-DOMAIN/api/twilio/media-stream`);
-  console.log(`⚡  Widget RT:   wss://YOUR-DOMAIN/realtime\n`);
+  const cfg = safeConfigForDebug();
+  const wsBase = cfg.twilioWsUrlValid
+    ? cfg.twilioWsUrl
+    : `ws://localhost:${PORT}`;
+  console.log(`🎙️  Voice calls: ${wsBase}/ws`);
+  console.log(`📞  Twilio Stream: ${wsBase}/api/twilio/media-stream`);
+  console.log(`⚡  Widget RT:   ${wsBase}/realtime\n`);
 });
 
 process.on("SIGTERM", () => {
