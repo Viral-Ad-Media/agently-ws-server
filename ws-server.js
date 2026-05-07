@@ -32,10 +32,12 @@ const {
 // Scheduler — production scheduled outbound worker runs on Railway.
 let startLeadScheduler = null;
 let executeDueSchedules = null;
+let debugProviderHealth = null;
 try {
   const scheduler = require("./lib/scheduler");
   startLeadScheduler = scheduler.startLeadScheduler || null;
   executeDueSchedules = scheduler.executeDueSchedules || null;
+  debugProviderHealth = scheduler.debugProviderHealth || null;
 } catch (e) {
   console.warn("[WS] Scheduler not available:", e.message);
 }
@@ -61,6 +63,14 @@ app.get("/health", (_req, res) =>
       fallback: process.env.VOICE_PROVIDER_FALLBACK || "openai",
       elevenLabsConfigured: Boolean(
         (process.env.ELEVENLABS_API_KEY || "").trim(),
+      ),
+      elevenLabsPreflightMode:
+        process.env.ELEVENLABS_PREFLIGHT_MODE || "key_only",
+      elevenLabsRequired:
+        String(process.env.ELEVENLABS_REQUIRED || "false").toLowerCase() ===
+        "true",
+      providerHealthCacheSeconds: Number(
+        process.env.PROVIDER_HEALTH_CACHE_SECONDS || 300,
       ),
       elevenLabsDefaultModel:
         process.env.ELEVENLABS_DEFAULT_MODEL || "eleven_flash_v2_5",
@@ -114,6 +124,14 @@ app.get("/api/health", (_req, res) =>
       fallback: process.env.VOICE_PROVIDER_FALLBACK || "openai",
       elevenLabsConfigured: Boolean(
         (process.env.ELEVENLABS_API_KEY || "").trim(),
+      ),
+      elevenLabsPreflightMode:
+        process.env.ELEVENLABS_PREFLIGHT_MODE || "key_only",
+      elevenLabsRequired:
+        String(process.env.ELEVENLABS_REQUIRED || "false").toLowerCase() ===
+        "true",
+      providerHealthCacheSeconds: Number(
+        process.env.PROVIDER_HEALTH_CACHE_SECONDS || 300,
       ),
       elevenLabsDefaultModel:
         process.env.ELEVENLABS_DEFAULT_MODEL || "eleven_flash_v2_5",
@@ -170,6 +188,24 @@ function requireDebugToken(req, res) {
   }
   return true;
 }
+
+app.get("/debug/provider-health", async (req, res) => {
+  if (!requireDebugToken(req, res)) return;
+  try {
+    if (!debugProviderHealth) {
+      return res
+        .status(503)
+        .json({ ok: false, error: "Provider health debug is unavailable." });
+    }
+    const health = await debugProviderHealth();
+    return res.json({ ok: true, ts: new Date().toISOString(), ...health });
+  } catch (err) {
+    console.error("[debug/provider-health] failed:", err.message);
+    return res
+      .status(500)
+      .json({ ok: false, error: "Failed to load provider health." });
+  }
+});
 
 app.get("/debug/agent-context", async (req, res) => {
   if (!requireDebugToken(req, res)) return;
