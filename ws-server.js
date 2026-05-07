@@ -39,14 +39,14 @@ let startLeadScheduler = null;
 let executeDueSchedules = null;
 let debugProviderHealth = null;
 let debugSchedule = null;
-let debugSchedulerState = null;
+let debugCleanSlate = null;
 try {
   const scheduler = require("./lib/scheduler");
   startLeadScheduler = scheduler.startLeadScheduler || null;
   executeDueSchedules = scheduler.executeDueSchedules || null;
   debugProviderHealth = scheduler.debugProviderHealth || null;
   debugSchedule = scheduler.debugSchedule || null;
-  debugSchedulerState = scheduler.debugSchedulerState || null;
+  debugCleanSlate = scheduler.debugCleanSlate || null;
 } catch (e) {
   console.warn("[WS] Scheduler not available:", e.message);
 }
@@ -235,45 +235,6 @@ app.get("/debug/provider-health", async (req, res) => {
   }
 });
 
-app.get("/debug/scheduler", async (req, res) => {
-  if (!requireDebugToken(req, res)) return;
-  try {
-    if (!debugSchedulerState) {
-      return res
-        .status(503)
-        .json({ ok: false, error: "Scheduler debug is unavailable." });
-    }
-    return res.json({
-      ok: true,
-      ts: new Date().toISOString(),
-      ...debugSchedulerState(),
-    });
-  } catch (err) {
-    console.error("[debug/scheduler] failed:", err.message);
-    return res
-      .status(500)
-      .json({ ok: false, error: "Failed to load scheduler debug details." });
-  }
-});
-
-app.post("/debug/scheduler/run-once", async (req, res) => {
-  if (!requireDebugToken(req, res)) return;
-  try {
-    if (!executeDueSchedules) {
-      return res
-        .status(503)
-        .json({ ok: false, error: "Scheduler run-once is unavailable." });
-    }
-    const summary = await executeDueSchedules({ runOnce: true });
-    return res.json({ ok: true, ts: new Date().toISOString(), summary });
-  } catch (err) {
-    console.error("[debug/scheduler/run-once] failed:", err.message);
-    return res
-      .status(500)
-      .json({ ok: false, error: "Failed to run scheduler once." });
-  }
-});
-
 app.get("/debug/schedule/:id", async (req, res) => {
   if (!requireDebugToken(req, res)) return;
   try {
@@ -289,6 +250,95 @@ app.get("/debug/schedule/:id", async (req, res) => {
     return res
       .status(500)
       .json({ ok: false, error: "Failed to load schedule debug details." });
+  }
+});
+
+app.get("/debug/scheduler", async (req, res) => {
+  if (!requireDebugToken(req, res)) return;
+  try {
+    return res.json({
+      ok: true,
+      ts: new Date().toISOString(),
+      schedulerEnabled:
+        String(
+          process.env.SCHEDULER_ENABLED ||
+            process.env.ENABLE_LEAD_SCHEDULER ||
+            "true",
+        ).toLowerCase() !== "false",
+      rawSchedulerEnabled: String(
+        process.env.SCHEDULER_ENABLED ||
+          process.env.ENABLE_LEAD_SCHEDULER ||
+          "true",
+      ),
+      workerStarted: Boolean(startLeadScheduler),
+      pollIntervalSeconds: Number(
+        process.env.SCHEDULER_POLL_INTERVAL_SECONDS || 60,
+      ),
+      staleNoSidResetMinutes: Number(
+        process.env.SCHEDULER_STALE_NO_SID_RESET_MINUTES || 3,
+      ),
+      activeCallWindowMinutes: Number(
+        process.env.SCHEDULER_ACTIVE_CALL_WINDOW_MINUTES || 30,
+      ),
+      oneTimeOverflowMode:
+        process.env.SCHEDULER_ONE_TIME_OVERFLOW_MODE || "fail",
+      config: safeConfigForDebug(),
+    });
+  } catch (err) {
+    console.error("[debug/scheduler] failed:", err.message);
+    return res
+      .status(500)
+      .json({ ok: false, error: "Failed to load scheduler debug." });
+  }
+});
+
+app.post("/debug/scheduler/run-once", async (req, res) => {
+  if (!requireDebugToken(req, res)) return;
+  try {
+    if (!executeDueSchedules) {
+      return res
+        .status(503)
+        .json({
+          ok: false,
+          error: "Scheduler executeDueSchedules is unavailable.",
+        });
+    }
+    const summary = await executeDueSchedules();
+    return res.json({ ok: true, ts: new Date().toISOString(), summary });
+  } catch (err) {
+    console.error("[debug/scheduler/run-once] failed:", err.message);
+    return res
+      .status(500)
+      .json({
+        ok: false,
+        error: "Failed to run scheduler once.",
+        detail: err.message,
+      });
+  }
+});
+
+app.post("/debug/scheduler/clean-slate", async (req, res) => {
+  if (!requireDebugToken(req, res)) return;
+  try {
+    if (!debugCleanSlate) {
+      return res
+        .status(503)
+        .json({ ok: false, error: "Clean slate helper is unavailable." });
+    }
+    const result = await debugCleanSlate({
+      organizationId: req.query.organizationId || req.query.orgId || "",
+      scheduleId: req.query.scheduleId || "",
+    });
+    return res.json({ ts: new Date().toISOString(), ...result });
+  } catch (err) {
+    console.error("[debug/scheduler/clean-slate] failed:", err.message);
+    return res
+      .status(500)
+      .json({
+        ok: false,
+        error: "Failed to clean scheduled test rows.",
+        detail: err.message,
+      });
   }
 });
 
