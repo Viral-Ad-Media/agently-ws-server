@@ -258,6 +258,11 @@ app.get("/debug/schedule/:id", async (req, res) => {
 app.get("/debug/scheduler", async (req, res) => {
   if (!requireDebugToken(req, res)) return;
   try {
+    const activeConcurrency = debugActiveConcurrency
+      ? await debugActiveConcurrency({
+          organizationId: req.query.organizationId || req.query.orgId || "",
+        })
+      : null;
     return res.json({
       ok: true,
       ts: new Date().toISOString(),
@@ -284,11 +289,7 @@ app.get("/debug/scheduler", async (req, res) => {
       ),
       oneTimeOverflowMode:
         process.env.SCHEDULER_ONE_TIME_OVERFLOW_MODE || "fail",
-      activeConcurrency: debugActiveConcurrency
-        ? await debugActiveConcurrency({
-            organizationId: req.query.organizationId || req.query.orgId || "",
-          })
-        : null,
+      activeConcurrency,
       config: safeConfigForDebug(),
     });
   } catch (err) {
@@ -331,7 +332,7 @@ app.post("/debug/scheduler/clean-slate", async (req, res) => {
     const result = await debugCleanSlate({
       organizationId: req.query.organizationId || req.query.orgId || "",
       scheduleId: req.query.scheduleId || "",
-      dryRun: String(req.query.dryRun || "false").toLowerCase() === "true",
+      dryRun: String(req.query.dryRun || "").toLowerCase() === "true",
     });
     return res.json({ ts: new Date().toISOString(), ...result });
   } catch (err) {
