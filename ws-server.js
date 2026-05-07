@@ -40,7 +40,7 @@ let executeDueSchedules = null;
 let debugProviderHealth = null;
 let debugSchedule = null;
 let debugCleanSlate = null;
-let debugActiveConcurrency = null;
+let debugSchedulerLimits = null;
 try {
   const scheduler = require("./lib/scheduler");
   startLeadScheduler = scheduler.startLeadScheduler || null;
@@ -48,7 +48,7 @@ try {
   debugProviderHealth = scheduler.debugProviderHealth || null;
   debugSchedule = scheduler.debugSchedule || null;
   debugCleanSlate = scheduler.debugCleanSlate || null;
-  debugActiveConcurrency = scheduler.debugActiveConcurrency || null;
+  debugSchedulerLimits = scheduler.debugSchedulerLimits || null;
 } catch (e) {
   console.warn("[WS] Scheduler not available:", e.message);
 }
@@ -257,59 +257,70 @@ app.get("/debug/schedule/:id", async (req, res) => {
 
 app.get("/debug/scheduler", async (req, res) => {
   if (!requireDebugToken(req, res)) return;
-  try {
-    let activeConcurrency = null;
-    if (debugActiveConcurrency) {
-      try {
-        activeConcurrency = await debugActiveConcurrency({
-          organizationId: req.query.organizationId || req.query.orgId || "",
-        });
-      } catch (diagnosticError) {
-        console.warn(
-          "[debug/scheduler] active concurrency diagnostic failed:",
-          diagnosticError.message,
-        );
-        activeConcurrency = {
-          ok: false,
-          error: diagnosticError.message,
-          note: "Scheduler is running; active concurrency diagnostics failed but debug endpoint stayed available.",
-        };
-      }
-    }
-    return res.json({
-      ok: true,
-      ts: new Date().toISOString(),
-      schedulerEnabled:
-        String(
-          process.env.SCHEDULER_ENABLED ||
-            process.env.ENABLE_LEAD_SCHEDULER ||
-            "true",
-        ).toLowerCase() !== "false",
-      rawSchedulerEnabled: String(
+  const payload = {
+    ok: true,
+    ts: new Date().toISOString(),
+    schedulerEnabled:
+      String(
         process.env.SCHEDULER_ENABLED ||
           process.env.ENABLE_LEAD_SCHEDULER ||
           "true",
-      ),
-      workerStarted: Boolean(startLeadScheduler),
-      pollIntervalSeconds: Number(
-        process.env.SCHEDULER_POLL_INTERVAL_SECONDS || 60,
-      ),
-      staleNoSidResetMinutes: Number(
-        process.env.SCHEDULER_STALE_NO_SID_RESET_MINUTES || 3,
-      ),
-      activeCallWindowMinutes: Number(
-        process.env.SCHEDULER_ACTIVE_CALL_WINDOW_MINUTES || 30,
-      ),
-      oneTimeOverflowMode:
-        process.env.SCHEDULER_ONE_TIME_OVERFLOW_MODE || "fail",
-      activeConcurrency,
-      config: safeConfigForDebug(),
+      ).toLowerCase() !== "false",
+    rawSchedulerEnabled: String(
+      process.env.SCHEDULER_ENABLED ||
+        process.env.ENABLE_LEAD_SCHEDULER ||
+        "true",
+    ),
+    workerStarted: Boolean(startLeadScheduler),
+    pollIntervalSeconds: Number(
+      process.env.SCHEDULER_POLL_INTERVAL_SECONDS || 60,
+    ),
+    staleNoSidResetMinutes: Number(
+      process.env.SCHEDULER_STALE_NO_SID_RESET_MINUTES || 3,
+    ),
+    activeCallWindowMinutes: Number(
+      process.env.SCHEDULER_ACTIVE_CALL_WINDOW_MINUTES || 30,
+    ),
+    oneTimeOverflowMode: process.env.SCHEDULER_ONE_TIME_OVERFLOW_MODE || "fail",
+    config: safeConfigForDebug(),
+  };
+  if (debugSchedulerLimits && (req.query.organizationId || req.query.orgId)) {
+    try {
+      payload.limitsDebug = await debugSchedulerLimits({
+        organizationId: req.query.organizationId || req.query.orgId || "",
+        scheduleId: req.query.scheduleId || "",
+      });
+    } catch (err) {
+      payload.limitsDebug = {
+        ok: false,
+        error: err.message || String(err),
+      };
+      console.error("[debug/scheduler] limits debug failed:", err.message);
+    }
+  }
+  return res.json(payload);
+});
+
+app.get("/debug/scheduler/limits", async (req, res) => {
+  if (!requireDebugToken(req, res)) return;
+  try {
+    if (!debugSchedulerLimits) {
+      return res
+        .status(503)
+        .json({ ok: false, error: "Scheduler limits debug is unavailable." });
+    }
+    const result = await debugSchedulerLimits({
+      organizationId: req.query.organizationId || req.query.orgId || "",
+      scheduleId: req.query.scheduleId || "",
     });
+    return res.json({ ts: new Date().toISOString(), ...result });
   } catch (err) {
-    console.error("[debug/scheduler] failed:", err.message);
-    return res
-      .status(500)
-      .json({ ok: false, error: "Failed to load scheduler debug." });
+    console.error("[debug/scheduler/limits] failed:", err.message);
+    return res.status(500).json({
+      ok: false,
+      error: "Failed to load scheduler limits debug.",
+      detail: err.message,
+    });
   }
 });
 
@@ -345,16 +356,12 @@ app.post("/debug/scheduler/clean-slate", async (req, res) => {
     const result = await debugCleanSlate({
       organizationId: req.query.organizationId || req.query.orgId || "",
       scheduleId: req.query.scheduleId || "",
-      dryRun: String(req.query.dryRun || "").toLowerCase() === "true",
-      resetLinked:
-        String(
-          req.query.resetLinked || req.query.resetActive || "",
-        ).toLowerCase() === "true",
-      resetLinkedOlderThanMinutes: Number(
+      dryRun: req.query.dryRun || false,
+      resetLinked: req.query.resetLinked || false,
+      resetLinkedOlderThanMinutes:
         req.query.resetLinkedOlderThanMinutes ||
-          req.query.resetActiveOlderThanMinutes ||
-          2,
-      ),
+        req.query.linkedOlderThanMinutes ||
+        2,
     });
     return res.json({ ts: new Date().toISOString(), ...result });
   } catch (err) {
