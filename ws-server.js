@@ -40,6 +40,7 @@ let executeDueSchedules = null;
 let debugProviderHealth = null;
 let debugSchedule = null;
 let debugCleanSlate = null;
+let debugActiveConcurrency = null;
 try {
   const scheduler = require("./lib/scheduler");
   startLeadScheduler = scheduler.startLeadScheduler || null;
@@ -47,6 +48,7 @@ try {
   debugProviderHealth = scheduler.debugProviderHealth || null;
   debugSchedule = scheduler.debugSchedule || null;
   debugCleanSlate = scheduler.debugCleanSlate || null;
+  debugActiveConcurrency = scheduler.debugActiveConcurrency || null;
 } catch (e) {
   console.warn("[WS] Scheduler not available:", e.message);
 }
@@ -282,6 +284,11 @@ app.get("/debug/scheduler", async (req, res) => {
       ),
       oneTimeOverflowMode:
         process.env.SCHEDULER_ONE_TIME_OVERFLOW_MODE || "fail",
+      activeConcurrency: debugActiveConcurrency
+        ? await debugActiveConcurrency({
+            organizationId: req.query.organizationId || req.query.orgId || "",
+          })
+        : null,
       config: safeConfigForDebug(),
     });
   } catch (err) {
@@ -296,24 +303,20 @@ app.post("/debug/scheduler/run-once", async (req, res) => {
   if (!requireDebugToken(req, res)) return;
   try {
     if (!executeDueSchedules) {
-      return res
-        .status(503)
-        .json({
-          ok: false,
-          error: "Scheduler executeDueSchedules is unavailable.",
-        });
+      return res.status(503).json({
+        ok: false,
+        error: "Scheduler executeDueSchedules is unavailable.",
+      });
     }
     const summary = await executeDueSchedules();
     return res.json({ ok: true, ts: new Date().toISOString(), summary });
   } catch (err) {
     console.error("[debug/scheduler/run-once] failed:", err.message);
-    return res
-      .status(500)
-      .json({
-        ok: false,
-        error: "Failed to run scheduler once.",
-        detail: err.message,
-      });
+    return res.status(500).json({
+      ok: false,
+      error: "Failed to run scheduler once.",
+      detail: err.message,
+    });
   }
 });
 
@@ -328,17 +331,16 @@ app.post("/debug/scheduler/clean-slate", async (req, res) => {
     const result = await debugCleanSlate({
       organizationId: req.query.organizationId || req.query.orgId || "",
       scheduleId: req.query.scheduleId || "",
+      dryRun: String(req.query.dryRun || "false").toLowerCase() === "true",
     });
     return res.json({ ts: new Date().toISOString(), ...result });
   } catch (err) {
     console.error("[debug/scheduler/clean-slate] failed:", err.message);
-    return res
-      .status(500)
-      .json({
-        ok: false,
-        error: "Failed to clean scheduled test rows.",
-        detail: err.message,
-      });
+    return res.status(500).json({
+      ok: false,
+      error: "Failed to clean scheduled test rows.",
+      detail: err.message,
+    });
   }
 });
 
