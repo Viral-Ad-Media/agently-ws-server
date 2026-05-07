@@ -258,11 +258,24 @@ app.get("/debug/schedule/:id", async (req, res) => {
 app.get("/debug/scheduler", async (req, res) => {
   if (!requireDebugToken(req, res)) return;
   try {
-    const activeConcurrency = debugActiveConcurrency
-      ? await debugActiveConcurrency({
+    let activeConcurrency = null;
+    if (debugActiveConcurrency) {
+      try {
+        activeConcurrency = await debugActiveConcurrency({
           organizationId: req.query.organizationId || req.query.orgId || "",
-        })
-      : null;
+        });
+      } catch (diagnosticError) {
+        console.warn(
+          "[debug/scheduler] active concurrency diagnostic failed:",
+          diagnosticError.message,
+        );
+        activeConcurrency = {
+          ok: false,
+          error: diagnosticError.message,
+          note: "Scheduler is running; active concurrency diagnostics failed but debug endpoint stayed available.",
+        };
+      }
+    }
     return res.json({
       ok: true,
       ts: new Date().toISOString(),
@@ -333,6 +346,15 @@ app.post("/debug/scheduler/clean-slate", async (req, res) => {
       organizationId: req.query.organizationId || req.query.orgId || "",
       scheduleId: req.query.scheduleId || "",
       dryRun: String(req.query.dryRun || "").toLowerCase() === "true",
+      resetLinked:
+        String(
+          req.query.resetLinked || req.query.resetActive || "",
+        ).toLowerCase() === "true",
+      resetLinkedOlderThanMinutes: Number(
+        req.query.resetLinkedOlderThanMinutes ||
+          req.query.resetActiveOlderThanMinutes ||
+          2,
+      ),
     });
     return res.json({ ts: new Date().toISOString(), ...result });
   } catch (err) {
