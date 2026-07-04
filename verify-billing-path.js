@@ -40,10 +40,34 @@ const RUN_TAG = `verify:${new Date().toISOString()}:${crypto.randomBytes(4).toSt
 
 // One synthetic row per provider a real call produces.
 const PROBES = [
-  { provider: "railway", service: "runtime", event_type: "websocket_runtime", unit: "seconds", quantity: 12 },
-  { provider: "openai", service: "realtime", event_type: "openai_realtime_tokens", unit: "tokens", quantity: 1500 },
-  { provider: "elevenlabs", service: "voice", event_type: "tts_or_agent_voice", unit: "characters", quantity: 240 },
-  { provider: "twilio", service: "voice", event_type: "twilio_call", unit: "minutes", quantity: 1 },
+  {
+    provider: "railway",
+    service: "runtime",
+    event_type: "websocket_runtime",
+    unit: "seconds",
+    quantity: 12,
+  },
+  {
+    provider: "openai",
+    service: "realtime",
+    event_type: "openai_realtime_tokens",
+    unit: "tokens",
+    quantity: 1500,
+  },
+  {
+    provider: "elevenlabs",
+    service: "voice",
+    event_type: "tts_or_agent_voice",
+    unit: "characters",
+    quantity: 240,
+  },
+  {
+    provider: "twilio",
+    service: "voice",
+    event_type: "twilio_call",
+    unit: "minutes",
+    quantity: 1,
+  },
 ];
 
 async function main() {
@@ -70,7 +94,9 @@ async function main() {
     const externalId = `${RUN_TAG}:${p.provider}`;
     const idempotencyKey = crypto
       .createHash("sha256")
-      .update([p.provider, p.service, p.event_type, externalId, ORG_ID].join("|"))
+      .update(
+        [p.provider, p.service, p.event_type, externalId, ORG_ID].join("|"),
+      )
       .digest("hex");
 
     const payload = {
@@ -85,7 +111,10 @@ async function main() {
       quantity: p.quantity,
       billable: false, // probes are non-billable; safe to delete
       occurred_at: new Date().toISOString(),
-      metadata: { note: "verify-billing-path.js probe; safe to delete", run_tag: RUN_TAG },
+      metadata: {
+        note: "verify-billing-path.js probe; safe to delete",
+        run_tag: RUN_TAG,
+      },
     };
 
     try {
