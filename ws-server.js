@@ -540,6 +540,55 @@ server.listen(PORT, () => {
   console.log(`🎙️  Voice calls: ${wsBase}/ws`);
   console.log(`📞  Twilio Stream: ${wsBase}/api/twilio/media-stream`);
   console.log(`⚡  Widget RT:   ${wsBase}/realtime\n`);
+
+  // ── Billing runtime self-test ─────────────────────────────────
+  // This is the single check that would have caught the "only Twilio rows
+  // appear" bug on day one: it exercises the exact same getSupabase() +
+  // billing_usage_events upsert path that live calls use, at boot, with a
+  // non-billable synthetic row. If this fails, live calls WILL also fail to
+  // write OpenAI/ElevenLabs/Railway usage, and the reason will be printed
+  // here instead of being buried inside a live-call try/catch.
+  (async () => {
+    try {
+      const { getSupabase } = require("./lib/supabase");
+      const db = getSupabase();
+      const probeKey = `ws_boot_selftest:${process.env.RAILWAY_DEPLOYMENT_ID || process.env.HOSTNAME || "local"}:${new Date().toISOString().slice(0, 13)}`;
+      const { error } = await db.from("billing_usage_events").upsert(
+        {
+          organization_id: null,
+          provider: "agently",
+          service: "ws_boot_selftest",
+          event_type: "boot_check",
+          source: "agently_ws_boot_selftest",
+          external_id: probeKey,
+          idempotency_key: probeKey,
+          unit: "check",
+          quantity: 1,
+          billable: false,
+          occurred_at: new Date().toISOString(),
+          metadata: {
+            note: "boot-time connectivity probe, safe to ignore/delete",
+          },
+        },
+        { onConflict: "idempotency_key" },
+      );
+      if (error) throw error;
+      console.log(
+        "[billing-selftest] ✅ Supabase + billing_usage_events writable at boot. Live-call billing writes should work.",
+      );
+    } catch (err) {
+      console.error(
+        "\n❌❌❌ [billing-selftest] FAILED — live-call billing writes (OpenAI/ElevenLabs/Railway) WILL be dropped. ❌❌❌",
+      );
+      console.error(
+        "[billing-selftest] reason:",
+        err && err.message ? err.message : String(err),
+      );
+      console.error(
+        "[billing-selftest] check SUPABASE_URL and the service-role key env var (SUPABASE_SERVICE_KEY / SUPABASE_SERVICE_ROLE_KEY) on THIS service.\n",
+      );
+    }
+  })();
 });
 
 process.on("SIGTERM", () => {
