@@ -514,19 +514,73 @@ try {
 // Replaces Vercel Cron (which requires paid plan for sub-daily jobs).
 // Copy agently-server/lib/billing-tracker.js into this project's lib/ folder.
 // NEVER exposed to users — backend-only internal cost tracking.
+// PATCH: this used to be a console.warn. The require path was
+// "./lib/billing-tracker" while the file on disk was "lib/billing_tracker.js"
+// — one character — so the tracker never started and every live call went
+// unbilled while the server looked perfectly healthy in every dashboard.
+// It now fails loudly instead of degrading silently.
+const BILLING_TRACKER_REQUIRED =
+  String(process.env.BILLING_TRACKER_REQUIRED || "true").toLowerCase() !==
+  "false";
+
 try {
   const bt = require("./lib/billing-tracker");
   if (typeof bt.start === "function") {
     bt.start();
-    console.log("[WS] Billing tracker started (every 30s)");
+    console.log("[WS] Billing tracker started.");
   } else {
-    console.warn("[WS] billing-tracker has no start() export — skipping");
+    throw new Error("billing-tracker module has no start() export");
   }
-} catch (e) {
-  console.warn(
-    "[WS] Billing tracker not available (copy billing-tracker.js to lib/):",
-    e.message,
+} catch (err) {
+  const message = err && err.message ? err.message : String(err);
+  console.error("[WS] BILLING TRACKER FAILED TO START:", message);
+  if (BILLING_TRACKER_REQUIRED) {
+    console.error(
+      "[WS] Refusing to serve calls without billing. Every call handled in " +
+        "this state is unbilled revenue loss. Set BILLING_TRACKER_REQUIRED=false " +
+        "only as a deliberate, temporary override.",
+    );
+    process.exit(1);
+  }
+  console.error(
+    "[WS] Continuing WITHOUT call billing. This is a revenue-loss state.",
   );
+}
+
+// PATCH: always-on workers. These replace work previously attempted inside
+// Vercel request handlers, where the lambda froze before it could finish.
+try {
+  require("./lib/scrape-worker").start();
+} catch (err) {
+  console.error("[WS] scrape worker failed to start:", err?.message || err);
+}
+
+try {
+  require("./lib/change-monitor").start();
+} catch (err) {
+  console.error("[WS] change monitor failed to start:", err?.message || err);
+}
+
+// Hourly safety net for charges that failed to post when they were incurred.
+// The top-up route settles synchronously; this catches everything else.
+if (
+  String(process.env.SETTLEMENT_SWEEP_ENABLED || "true").toLowerCase() !==
+  "false"
+) {
+  const SWEEP_MS = Number(process.env.SETTLEMENT_SWEEP_MS || 60 * 60 * 1000);
+  setInterval(async () => {
+    try {
+      const { sweepAllOrganizations } = require("./lib/wallet-settlement");
+      const result = await sweepAllOrganizations({ maxOrgs: 200 });
+      if (result.totalSettledUsd > 0) {
+        console.log(
+          `[settlement-sweep] settled $${result.totalSettledUsd} across ${result.organizationsProcessed} org(s)`,
+        );
+      }
+    } catch (err) {
+      console.error("[settlement-sweep]", err?.message || err);
+    }
+  }, SWEEP_MS);
 }
 
 // ── Start ─────────────────────────────────────────────────────
