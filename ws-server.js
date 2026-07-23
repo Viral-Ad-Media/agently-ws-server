@@ -61,8 +61,28 @@ logRuntimeConfigValidation(validateRuntimeConfig());
 // ── Health endpoint ───────────────────────────────────────────
 app.get("/health", (_req, res) =>
   res.json({
-    ok: true,
-    status: "ok",
+    // Reports the billing gate so you can see WHY calls are being refused
+    // without having to read container logs. The previous design exited the
+    // process instead, which meant this endpoint never answered at all.
+    ok:
+      typeof global.__agentlyBillingGateOpen === "function"
+        ? global.__agentlyBillingGateOpen()
+        : true,
+    status:
+      typeof global.__agentlyBillingGateOpen === "function" &&
+      !global.__agentlyBillingGateOpen()
+        ? "degraded_billing_unavailable"
+        : "ok",
+    billing: {
+      ready:
+        typeof global.__agentlyBillingGateOpen === "function"
+          ? global.__agentlyBillingGateOpen()
+          : null,
+      error:
+        typeof global.__agentlyBillingError === "function"
+          ? global.__agentlyBillingError()
+          : null,
+    },
     service: "agently-ws",
     ts: new Date().toISOString(),
     paths: {
@@ -514,74 +534,90 @@ try {
 // Replaces Vercel Cron (which requires paid plan for sub-daily jobs).
 // Copy agently-server/lib/billing-tracker.js into this project's lib/ folder.
 // NEVER exposed to users — backend-only internal cost tracking.
-// PATCH: this used to be a console.warn. The require path was
-// "./lib/billing-tracker" while the file on disk was "lib/billing_tracker.js"
-// — one character — so the tracker never started and every live call went
-// unbilled while the server looked perfectly healthy in every dashboard.
-// It now fails loudly instead of degrading silently.
-const BILLING_TRACKER_REQUIRED =
-  String(process.env.BILLING_TRACKER_REQUIRED || "true").toLowerCase() !==
-  "false";
+// ── BILLING TRACKER ─────────────────────────────────────────────────────────
+//
+// REVISED. My previous version called process.exit(1) when the tracker failed
+// to load. That was wrong, and it is what put this container into a restart
+// loop. The reasoning was "never serve calls unbilled" — correct goal, wrong
+// mechanism. A crash loop is strictly worse than the problem it prevents:
+//
+//   • the process dies before it can tell you why, so the logs are near-empty
+//   • Railway restarts it every few seconds, and every boot re-runs the
+//     scheduler, the billing self-test and the workers below — a query storm
+//     against the SAME Supabase project the login API depends on
+//   • /health never comes up, so nothing downstream can see the real state
+//
+// New behaviour: the process STAYS UP and healthy, but refuses to accept
+// calls while billing is broken. Same protection, no collateral damage.
+let BILLING_READY = false;
+let BILLING_ERROR = null;
 
 try {
   const bt = require("./lib/billing-tracker");
-  if (typeof bt.start === "function") {
-    bt.start();
-    console.log("[WS] Billing tracker started.");
-  } else {
+  if (typeof bt.start !== "function") {
     throw new Error("billing-tracker module has no start() export");
   }
+  bt.start();
+  BILLING_READY = true;
+  console.log("[WS] Billing tracker started.");
 } catch (err) {
-  const message = err && err.message ? err.message : String(err);
-  console.error("[WS] BILLING TRACKER FAILED TO START:", message);
-  if (BILLING_TRACKER_REQUIRED) {
-    console.error(
-      "[WS] Refusing to serve calls without billing. Every call handled in " +
-        "this state is unbilled revenue loss. Set BILLING_TRACKER_REQUIRED=false " +
-        "only as a deliberate, temporary override.",
-    );
-    process.exit(1);
-  }
+  BILLING_ERROR = (err && err.message) || String(err);
+  console.error("[WS] BILLING TRACKER FAILED TO START:", BILLING_ERROR);
   console.error(
-    "[WS] Continuing WITHOUT call billing. This is a revenue-loss state.",
+    "[WS] Calls will be REJECTED while billing is down, but the server stays " +
+      "up so you can read this and /health reports the reason. " +
+      "Set BILLING_TRACKER_OPTIONAL=true to accept calls anyway (revenue loss).",
   );
 }
 
-// PATCH: always-on workers. These replace work previously attempted inside
-// Vercel request handlers, where the lambda froze before it could finish.
-try {
-  require("./lib/scrape-worker").start();
-} catch (err) {
-  console.error("[WS] scrape worker failed to start:", err?.message || err);
-}
+const BILLING_OPTIONAL =
+  String(process.env.BILLING_TRACKER_OPTIONAL || "false").toLowerCase() ===
+  "true";
 
-try {
-  require("./lib/change-monitor").start();
-} catch (err) {
-  console.error("[WS] change monitor failed to start:", err?.message || err);
+/** Call sites check this before accepting a media stream. */
+function billingGateOpen() {
+  return BILLING_READY || BILLING_OPTIONAL;
 }
+global.__agentlyBillingGateOpen = billingGateOpen;
+global.__agentlyBillingError = () => BILLING_ERROR;
 
-// Hourly safety net for charges that failed to post when they were incurred.
-// The top-up route settles synchronously; this catches everything else.
-if (
-  String(process.env.SETTLEMENT_SWEEP_ENABLED || "true").toLowerCase() !==
-  "false"
-) {
-  const SWEEP_MS = Number(process.env.SETTLEMENT_SWEEP_MS || 60 * 60 * 1000);
-  setInterval(async () => {
-    try {
-      const { sweepAllOrganizations } = require("./lib/wallet-settlement");
-      const result = await sweepAllOrganizations({ maxOrgs: 200 });
-      if (result.totalSettledUsd > 0) {
-        console.log(
-          `[settlement-sweep] settled $${result.totalSettledUsd} across ${result.organizationsProcessed} org(s)`,
-        );
-      }
-    } catch (err) {
-      console.error("[settlement-sweep]", err?.message || err);
-    }
-  }, SWEEP_MS);
-}
+// ── BACKGROUND WORKERS ──────────────────────────────────────────────────────
+//
+// Deliberately delayed and jittered. If this container ever does end up in a
+// restart loop, workers that fire instantly on boot turn that loop into a
+// denial-of-service against your own Supabase project — which is shared with
+// the login API. The delay means a container that dies young never reaches
+// them at all.
+const WORKER_BOOT_DELAY_MS = Number(process.env.WORKER_BOOT_DELAY_MS || 20000);
+const bootJitter = Math.floor(Math.random() * 5000);
+
+setTimeout(() => {
+  try {
+    require("./lib/scrape-worker").start();
+  } catch (err) {
+    console.error("[WS] scrape worker failed to start:", err?.message || err);
+  }
+
+  try {
+    require("./lib/change-monitor").start();
+  } catch (err) {
+    console.error("[WS] change monitor failed to start:", err?.message || err);
+  }
+}, WORKER_BOOT_DELAY_MS + bootJitter);
+
+// NOTE: the wallet settlement sweep that used to live here has been REMOVED.
+//
+// It was a real bug on my part. lib/wallet-settlement.js needs
+// postWalletDebitForChargeDirectly, which exists in the API server's
+// lib/usage-ledger.js. This repo has its own, much smaller usage-ledger.js
+// that exports only four functions and not that one — so the symbol resolved
+// to undefined and every sweep threw TypeError after first running a
+// 5000-row query against billing_customer_usage_charges.
+//
+// Settlement belongs on Vercel, where the full ledger lives. It already runs
+// synchronously on every top-up (api/routes/billing-usage.js), which covers
+// the case that matters. If you want a periodic sweep as well, point a cron
+// at POST /api/billing-usage/wallets/settle-all rather than running it here.
 
 // ── Start ─────────────────────────────────────────────────────
 server.listen(PORT, () => {
