@@ -28,6 +28,7 @@ const {
   loadCallRecordDebug,
   dedupeCallMessage,
 } = require("./lib/twilio-media-stream");
+const { handleWebcallStreamWS } = require("./lib/webcall-stream");
 const {
   safeConfigForDebug,
   logRuntimeConfigValidation,
@@ -501,6 +502,12 @@ server.on("upgrade", (request, socket, head) => {
     wss.handleUpgrade(request, socket, head, (ws) => {
       handleRealtimeProxy(ws, request);
     });
+  } else if (url === "/api/webcall/stream") {
+    // "Talk to Your Agent" — live browser test call. Isolated handler,
+    // isolated failure domain: cannot affect Twilio calls or /realtime.
+    wss.handleUpgrade(request, socket, head, (ws) => {
+      handleWebcallStreamWS(ws, request);
+    });
   } else {
     console.warn(`[WS] Rejected websocket upgrade path: ${url || "<empty>"}`);
     socket.destroy();
@@ -629,6 +636,7 @@ server.listen(PORT, () => {
     : `ws://localhost:${PORT}`;
   console.log(`🎙️  Voice calls: ${wsBase}/ws`);
   console.log(`📞  Twilio Stream: ${wsBase}/api/twilio/media-stream`);
+  console.log(`🎙️  Webcall Stream: ${wsBase}/api/webcall/stream`);
   console.log(`⚡  Widget RT:   ${wsBase}/realtime\n`);
 
   // ── Billing runtime self-test ─────────────────────────────────
