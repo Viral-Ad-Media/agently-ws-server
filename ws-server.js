@@ -610,6 +610,12 @@ setTimeout(() => {
   } catch (err) {
     console.error("[WS] change monitor failed to start:", err?.message || err);
   }
+
+  try {
+    require("./lib/knowledge-ingest-worker").start();
+  } catch (err) {
+    console.error("[WS] knowledge ingest worker failed to start:", err?.message || err);
+  }
 }, WORKER_BOOT_DELAY_MS + bootJitter);
 
 // NOTE: the wallet settlement sweep that used to live here has been REMOVED.

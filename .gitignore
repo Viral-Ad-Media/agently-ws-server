@@ -2,3 +2,11 @@
 .env.example
 node_modules
 /node_modules
+
+# Any .env variant, including backups. A .env.bak-* file once slipped past
+# the bare ".env" rule above and was caught by GitHub push protection.
+.env.*
+!.env.example.template
+*.bak
+*.bak-*
+*.backup
