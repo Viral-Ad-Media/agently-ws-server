@@ -632,6 +632,26 @@ setTimeout(() => {
 // the case that matters. If you want a periodic sweep as well, point a cron
 // at POST /api/billing-usage/wallets/settle-all rather than running it here.
 
+// ── Crash guards ──────────────────────────────────────────────
+// Node's default is --unhandled-rejections=throw, so a single rejected
+// promise anywhere in the process exits it — dropping EVERY live phone and
+// web call on this container, not just the one that failed. A background
+// billing write or an analytics call is never worth that. Log loudly and
+// keep serving; a genuinely fatal condition will still surface through the
+// health endpoint and the error logs.
+process.on("unhandledRejection", (reason) => {
+  console.error(
+    "[WS] Unhandled promise rejection (process kept alive):",
+    reason?.stack || reason?.message || JSON.stringify(reason || {}),
+  );
+});
+process.on("uncaughtException", (err) => {
+  console.error(
+    "[WS] Uncaught exception (process kept alive):",
+    err?.stack || err?.message || String(err),
+  );
+});
+
 // ── Start ─────────────────────────────────────────────────────
 server.listen(PORT, () => {
   console.log(`\n🔌 Agently WS Server on port ${PORT}`);
