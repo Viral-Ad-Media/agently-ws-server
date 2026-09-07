@@ -1,0 +1,28 @@
+# Without this file, `COPY . .` bakes the developer's .env into the production
+# image. Because the entrypoint calls dotenv.config(), every variable Lightsail
+# does NOT set is then silently filled in from that baked file — which is how
+# production ended up making Stripe calls with a TEST key while the container
+# environment carried a live one.
+#
+# Keep .env* first and never relax it.
+.env
+.env.*
+*.pem
+*.key
+
+.git
+.gitignore
+.github
+
+node_modules
+npm-debug.log*
+
+# Local-only tooling and notes; none of it runs in the container.
+.claude
+.vscode
+.idea
+*.md
+!README.md
+coverage
+.nyc_output
+tmp
