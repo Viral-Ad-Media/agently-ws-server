@@ -1,0 +1,20 @@
+name: Worker CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  billing-regressions:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      # The isolated tests use only Node built-ins, with no real providers.
+      - run: node --check lib/billing_tracker.js
+      - run: npm test
