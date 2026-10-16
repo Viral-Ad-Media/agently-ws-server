@@ -2,3 +2,5 @@
 require("./billing-tracker.test");
 require("./calendar-tools.test");
 require("./call-transfer.test");
+require("./outbound-greeting.test");
+require("./transfer-resume.test");
