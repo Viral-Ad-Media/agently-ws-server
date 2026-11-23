@@ -20,7 +20,6 @@ const http = require("http");
 const express = require("express");
 const { WebSocketServer } = require("ws");
 const { handleConversationRelayWS } = require("./lib/conversation-relay");
-const { handleRealtimeProxy } = require("./lib/realtime-proxy");
 const {
   handleTwilioMediaStreamWS,
   loadTwilioAgentContextForDebug,
@@ -477,10 +476,23 @@ app.get("/", (_req, res) =>
 );
 
 // ── WebSocket server (handles both paths) ────────────────────
-const wss = new WebSocketServer({ noServer: true });
+const wss = new WebSocketServer({ noServer: true, maxPayload: 1024*1024, perMessageDeflate:false });
 
-server.on("upgrade", (request, socket, head) => {
+server.on("upgrade", async (request, socket, head) => {
   const url = (request.url || "").split("?")[0];
+  if(url==='/api/webcall/stream') {
+    try {
+      const token=new URL(request.url,'http://localhost').searchParams.get('token');
+      if(!await require('./lib/webcall-auth').verifyWebcallToken(token)) return socket.end('HTTP/1.1 401 Unauthorized\r\nConnection: close\r\n\r\n');
+    } catch {return socket.end('HTTP/1.1 503 Service Unavailable\r\nConnection: close\r\n\r\n');}
+  }
+  if(['/ws','/api/twilio/ws','/api/twilio/media-stream','/media-stream','/twilio/media-stream'].includes(url)) {
+    try {
+      const sid=await require('./lib/twilio-request-auth').authenticateTwilio(request,{websocket:true});
+      if(!sid) {socket.end('HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n');return;}
+      request.twilioAccountSid=sid;
+    } catch {socket.end('HTTP/1.1 503 Service Unavailable\r\nConnection: close\r\n\r\n');return;}
+  }
 
   if (url === "/ws" || url === "/api/twilio/ws") {
     // Twilio ConversationRelay voice calls
@@ -498,15 +510,17 @@ server.on("upgrade", (request, socket, head) => {
       handleTwilioMediaStreamWS(ws, request);
     });
   } else if (url === "/realtime") {
-    // Chat widget real-time voice mode (OpenAI Realtime API proxy)
-    wss.handleUpgrade(request, socket, head, (ws) => {
-      handleRealtimeProxy(ws, request);
-    });
+    // Containment: the legacy widget path has no trustworthy admission token.
+    // Restore only after the widget uses server-issued, budget-scoped admission.
+    socket.end('HTTP/1.1 410 Gone\r\nConnection: close\r\n\r\n');
+    return;
   } else if (url === "/api/webcall/stream") {
     // "Talk to Your Agent" — live browser test call. Isolated handler,
     // isolated failure domain: cannot affect Twilio calls or /realtime.
     wss.handleUpgrade(request, socket, head, (ws) => {
-      handleWebcallStreamWS(ws, request);
+      handleWebcallStreamWS(ws, request).catch(()=>{
+        try {ws.send(JSON.stringify({type:'session.error',code:'SESSION_VERIFICATION_UNAVAILABLE',message:'Session verification is temporarily unavailable. Please retry.'}));ws.close(1013,'verification_unavailable');}catch{}
+      });
     });
   } else {
     console.warn(`[WS] Rejected websocket upgrade path: ${url || "<empty>"}`);

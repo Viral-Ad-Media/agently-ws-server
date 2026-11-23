@@ -21,7 +21,7 @@ test("the resume flag arrives through the stream start parameters", () => {
   assert.strictEqual(t.isTransferResume({}), false);
 });
 
-test("a normal call offers transfer_to_human and the 'please hold' line", () => {
+test("a normal call offers alternatives before transfer_to_human and the hold line", () => {
   const ctx = { agent, organization: { timezone: "America/Chicago" } };
   const session = t.realtimeSessionUpdateTextOnlyCurrent("prompt", true, ctx);
   assert.ok(toolNames(session).includes("transfer_to_human"));

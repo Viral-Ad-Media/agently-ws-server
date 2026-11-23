@@ -1,0 +1,4 @@
+# Emergency overlay on the locally verified release base. See the security
+# release note for the base image ID and final tested image digest.
+FROM agently-ws:security-20261020
+COPY . .

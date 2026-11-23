@@ -118,7 +118,7 @@ test("dispatch posts to the internal availability endpoint and returns its resul
     assert.equal(seen.url, "https://api.example.com/api/internal/calendar/availability");
     assert.equal(seen.headers["x-agently-internal-secret"], "s3cret");
     assert.equal(seen.body.organizationId, "org-1");
-    assert.equal(seen.body.fromISO, "2026-10-07T00:00:00.000Z");
+    assert.equal(seen.body.fromISO, "2026-10-07T04:00:00.000Z");
     assert.equal(seen.body.timezone, "America/New_York");
     assert.equal(result.success, true);
     assert.equal(result.provider, "google");
