@@ -36,7 +36,7 @@ test("a reconnected caller is not offered another transfer and gets the message/
     t.realtimeSessionUpdateCurrent("prompt", "alloy", true, ctx),
   ]) {
     assert.ok(!toolNames(session).includes("transfer_to_human"));
-    assert.match(session.session.instructions, /nobody answered/i);
+    assert.match(session.session.instructions, /isn.t available right now/i);
     assert.match(session.session.instructions, /Do not try to transfer again/);
   }
   assert.match(t.TRANSFER_RESUME_GREETING, /leave a message, or have someone call you back\?$/);

@@ -159,3 +159,12 @@ async function run() {
 if (require.main === module) run().catch((err) => { console.error(err); process.exitCode = 1; });
 else test("configured live transfer uses Twilio call redirect", run);
 module.exports = run;
+
+test("the transfer briefs the manager before connecting (Number url)", () => {
+  const ct = require("../lib/call-transfer");
+  const action = "https://api.example.test/api/twilio/transfer-status?attempt=1";
+  const whisper = ct.transferWhisperUrl(action, { brief: "Sarah from Texas wants a manager.", businessName: "Summit", parentCallSid: "CA1" });
+  assert.match(whisper, /^https:\/\/api\.example\.test\/api\/twilio\/transfer-whisper\?brief=Sarah/);
+  const twiml = ct.buildTransferTwiml("+12542688827", action, whisper);
+  assert.match(twiml, /<Number url="https:\/\/api\.example\.test\/api\/twilio\/transfer-whisper\?[^"]+" method="POST">\+12542688827<\/Number>/);
+});

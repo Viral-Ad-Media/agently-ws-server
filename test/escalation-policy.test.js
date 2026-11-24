@@ -33,3 +33,18 @@ test("structured caller choice supports non-English escalation and cannot bypass
 test("an initial request in another language still requires the de-escalation decision", () => {
   assert.equal(evaluateEscalation([caller("Je voudrais parler au responsable.")],{alternatives_offered:false,caller_still_wants_human:true,caller_declined_alternatives:false}).allowed,false);
 });
+
+// Owner rule: a message is always offered before a transfer. A polite first
+// request ("can I just talk to a manager?") must not skip that offer.
+test("a first 'can I just talk to a manager?' still gets the message offer first", () => {
+  for (const ask of ["Can I just talk to a manager?", "Connect me to someone now.", "I'd rather speak to a person."]) {
+    const result = evaluateEscalation([{ role: "caller", text: ask }]);
+    assert.equal(result.allowed, false, ask);
+    assert.match(result.message, /offer once to help, take a message, or arrange a callback/);
+  }
+});
+
+test("refusing the message itself allows the transfer", () => {
+  const result = evaluateEscalation([{ role: "caller", text: "No, I don't want to leave a message. Put me through to a manager." }]);
+  assert.equal(result.allowed, true);
+});

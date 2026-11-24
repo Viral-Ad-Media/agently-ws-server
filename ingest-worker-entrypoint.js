@@ -21,6 +21,9 @@ if (process.env.NODE_ENV !== "production") {
 
 const http = require("http");
 
+const scrapeWorkerOn =
+  String(process.env.SCRAPE_WORKER_ENABLED || "true").toLowerCase() !== "false";
+
 // Lightsail's container health check needs an HTTP response; this worker
 // has no other reason to open a port.
 const PORT = process.env.PORT || 8080;
@@ -28,7 +31,7 @@ http
   .createServer((req, res) => {
     if (req.url === "/health") {
       res.writeHead(200, { "Content-Type": "application/json" });
-      res.end(JSON.stringify({ ok: true, service: "knowledge-ingest-worker" }));
+      res.end(JSON.stringify({ ok: true, service: "knowledge-ingest-worker", scrapeWorker: scrapeWorkerOn }));
       return;
     }
     res.writeHead(404);
@@ -39,3 +42,9 @@ http
   });
 
 require("./lib/knowledge-ingest-worker").start();
+
+// Website scans (knowledge_scrape_jobs). This container is the background
+// worker; the API only queues scans and the call servers run with
+// SCRAPE_WORKER_ENABLED=false, so without this nothing read tenants' websites
+// and every scan sat at 0%. Off only when SCRAPE_WORKER_ENABLED=false.
+require("./lib/scrape-worker").start();
